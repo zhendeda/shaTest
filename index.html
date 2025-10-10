@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <title>Crash 验证器（克隆）</title>
+    <style>
+        :root {
+            --bg: #0b1220;
+            --card: #0f1724;
+            --muted: #9aa4b2;
+            --accent: #00d1b2;
+            --glass: rgba(255, 255, 255, 0.03)
+        }
+
+        * {
+            box-sizing: border-box
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: linear-gradient(180deg, #071122 0%, #0b1220 100%);
+            font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+            color: #e6eef6
+        }
+
+        .wrap {
+            max-width: 980px;
+            margin: 48px auto;
+            padding: 28px;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01));
+            border-radius: 12px;
+            box-shadow: 0 6px 30px rgba(2, 6, 23, 0.6)
+        }
+
+        h1 {
+            margin: 0 0 6px;
+            font-size: 20px
+        }
+
+        p.lead {
+            margin: 0 0 18px;
+            color: var(--muted)
+        }
+
+        .form {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap
+        }
+
+        .field {
+            flex: 1 1 220px;
+            min-width: 220px
+        }
+
+        label {
+            display: block;
+            font-size: 12px;
+            color: var(--muted);
+            margin-bottom: 8px
+        }
+
+        input[type=text], input[type=number] {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            background: var(--card);
+            color: inherit
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            border-radius: 10px;
+            background: linear-gradient(90deg, var(--accent), #00a88f);
+            color: #021217;
+            font-weight: 700;
+            border: none;
+            cursor: pointer
+        }
+
+        .btn.secondary {
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            color: var(--muted);
+            font-weight: 600
+        }
+
+        .controls {
+            margin-top: 14px;
+            display: flex;
+            gap: 10px
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 18px
+        }
+
+        th, td {
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px dashed rgba(255, 255, 255, 0.03)
+        }
+
+        th {
+            font-size: 12px;
+            color: var(--muted)
+        }
+
+        td.mult {
+            font-weight: 700;
+            color: #f3c26b
+        }
+
+        .small {
+            font-size: 13px;
+            color: var(--muted)
+        }
+
+        .muted {
+            color: var(--muted)
+        }
+
+        .hint {
+            margin-top: 10px;
+            color: var(--muted);
+            font-size: 13px
+        }
+
+        .copy {
+            cursor: pointer;
+            padding: 6px 8px;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.03);
+            background: var(--glass);
+            font-size: 12px
+        }
+
+        @media (max-width: 720px) {
+            .form {
+                flex-direction: column
+            }
+
+            .controls {
+                flex-direction: column
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <h1>Crash 验证器（克隆）</h1>
+    <p class="lead">输入游戏的 hash / salt 并验证历史结果 —— 这是一个前端克隆，仅复现界面和本地计算示例。</p>
+
+    <div class="form" role="form">
+        <div class="field">
+            <label for="gameHash">Game's hash</label>
+            <input id="gameHash" type="text" value="" placeholder="示例: 3f7a..."/>
+        </div>
+
+        <div class="field">
+            <label for="salt">Salt</label>
+            <input id="salt" type="text" value="" placeholder="示例: server-salt 或 salt123"/>
+        </div>
+
+        <div class="field">
+            <label for="count">Amount of games</label>
+            <input id="count" type="number" value="10" min="1" max="200"/>
+        </div>
+    </div>
+
+    <div class="controls">
+        <button id="verifyBtn" class="btn">Verify</button>
+        <button id="clearBtn" class="btn secondary">Clear results</button>
+        <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+            <span class="small muted">结果格式：</span>
+            <span class="small">Game's hash → Bust</span>
+        </div>
+    </div>
+
+    <div class="hint">
+        注意：本页面只是界面与本地演示，计算规则与原站点可能不同。若需完全一致的验证算法，请提供原站点的算法或允许我抓取并复现。
+    </div>
+
+    <table id="resultTable" aria-live="polite">
+        <thead>
+        <tr>
+            <th>Game's hash</th>
+            <th>Bust</th>
+        </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+</div>
+
+<script>
+    // helper: utf8 -> hex
+    function buf2hex(buffer) {
+        return [...new Uint8Array(buffer)].map(b => b.toString(16).padStart(2, '0')).join('')
+    }
+
+    async function sha256Hex(str) {
+        const enc = new TextEncoder();
+        const data = enc.encode(str);
+        const hash = await crypto.subtle.digest('SHA-256', data);
+        return buf2hex(hash);
+    }
+
+    // simple deterministic bust conversion: take first 13 hex chars -> int -> map to [1.00, 100.00]
+    function hexToBust(hex) {
+        // take first 13 chars (52 bits approx)
+        const slice = hex.slice(0, 13);
+        const val = parseInt(slice, 16);
+        // map to multiplier between 1.00 and 100.00
+        const max = Math.pow(16, 13);
+        const ratio = val / (max - 1);
+        const mult = 1 + ratio * 99; // from 1.00 to 100.00
+        return Math.max(1, Math.floor(mult * 100) / 100).toFixed(2);
+    }
+
+    const gameHashEl = document.getElementById('gameHash');
+    const saltEl = document.getElementById('salt');
+    const countEl = document.getElementById('count');
+    const verifyBtn = document.getElementById('verifyBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const tbody = document.querySelector('#resultTable tbody');
+
+    verifyBtn.addEventListener('click', async () => {
+        const gh = gameHashEl.value.trim();
+        console.log("输入框： " + !gh)
+        const salt = saltEl.value.trim();
+        let count = parseInt(countEl.value, 10) || 10;
+        if (!gh) {
+            alert('请输入 Game\'s hash');
+            return
+        }
+        if (!salt) {
+            alert('请输入 Salt');
+            return
+        }
+        verifyBtn.disabled = true;
+        verifyBtn.textContent = 'Verifying...';
+        tbody.innerHTML = '';
+
+        // for (let i = 0; i < count; i++) {
+        //     const input = `${gh}:${salt}:${i}`;
+        //     console.log("输入",input,gh,salt,i)
+        //     const h = await sha256Hex(input);
+        //     const bust = hexToBust(h);
+        //     const tr = document.createElement('tr');
+        //     const td1 = document.createElement('td');
+        //     td1.textContent = h;
+        //     const td2 = document.createElement('td');
+        //     td2.textContent = `${bust}x`;
+        //     td2.className = 'mult';
+        //     tr.appendChild(td1);
+        //     tr.appendChild(td2);
+        //     tbody.appendChild(tr);
+        // }
+        var h = gh + salt
+        for (let i = 0; i < count; i++) {
+            h = await sha256Hex(h);
+            const bust = hexToBust(h);
+            const tr = document.createElement('tr');
+            const td1 = document.createElement('td');
+            td1.textContent = h;
+            const td2 = document.createElement('td');
+            td2.textContent = `${bust}x`;
+            td2.className = 'mult';
+            tr.appendChild(td1);
+            tr.appendChild(td2);
+            tbody.appendChild(tr);
+        }
+
+        verifyBtn.disabled = false;
+        verifyBtn.textContent = 'Verify';
+    });
+
+    clearBtn.addEventListener('click', () => {
+        tbody.innerHTML = ''
+    });
+
+    // convenience: press Enter in any field triggers verify
+    [gameHashEl, saltEl, countEl].forEach(el => el.addEventListener('keydown', e => {
+        if (e.key === 'Enter') verifyBtn.click()
+    }));
+
+</script>
+</body>
+</html>
