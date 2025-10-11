@@ -172,7 +172,7 @@
 
         <div class="field">
             <label for="count">Amount of games</label>
-            <input id="count" type="number" value="5" min="1" max="100"/>
+            <input id="count" type="number" value="1" min="1" max="100"/>
         </div>
     </div>
 
@@ -202,6 +202,10 @@
 
 <script>
     // helper: utf8 -> hex
+
+    //TODO 加密算法去看签名（好像是base58）,和后端的归一化是否一致，这些TextEncoder的函数
+
+    // 相关如 URLSearchParams 类浏览器是否支持（Chrome，Firefox（fookbook），Safari(苹果)）
     function buf2hex(buffer) {
         return [...new Uint8Array(buffer)].map(b => b.toString(16).padStart(2, '0')).join('')
     }
@@ -212,10 +216,12 @@
         const hash = await crypto.subtle.digest('SHA-256', data);
         return buf2hex(hash);
     }
+
     // 这是一个异步函数
     async function hashData(data) {
-        // 将字符串编码为Uint8Array
+        // 将字符串编码为Uint8Array( 8 位无符号整型数组)
         const encoder = new TextEncoder();
+        // 字母编码
         const dataBuffer = encoder.encode(data);
 
         // 使用Web Crypto API计算哈希
@@ -226,22 +232,117 @@
         const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
         return hashHex;
     }
-    async function hashDataNormalized(data) {
-        let encoder = new TextEncoder();
-        let dataBuffer = encoder.encode(data);
-        let hashBuffer = await crypto.subtle.digest('SHA-256', dataBuffer);
-        let hashArray = Array.from(new Uint8Array(hashBuffer));
 
-        // 将哈希视作一个大整数并转为 [0,1) 的浮点数
-        let value = 0n;
-        for (const byte of hashArray) {
-            value = (value << 8n) + BigInt(byte);
+    //base 解码
+    function base58Decode(str) {
+        const alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+        const base = BigInt(alphabet.length);
+        let num = BigInt(0);
+
+        for (let char of str) {
+            const index = alphabet.indexOf(char);
+            if (index < 0) {
+                throw new Error(`Invalid Base58 character: ${char}`);
+            }
+            num = num * base + BigInt(index);
         }
-        let max = (1n << BigInt(hashArray.length * 8)) - 1n;
-        let normalized = Number(value) / Number(max);
 
-        return normalized; // 介于0~1之间的数
+        // 转换为字节数组
+        let bytes = [];
+        while (num > 0) {
+            bytes.unshift(Number(num % 256n));
+            num = num / 256n;
+        }
+
+        // 处理前导“1”对应的前导零字节
+        for (let char of str) {
+            if (char === '1') bytes.unshift(0);
+            else break;
+        }
+
+        return new Uint8Array(bytes);
     }
+
+    //base58解码
+    // 纯原生 Base58 字母表
+    const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+    const BASE = 58;
+
+    // Base58 解码
+    function base58Decode(str) {
+        let bytes = [0];
+        for (let char of str) {
+            const value = ALPHABET.indexOf(char);
+            if (value < 0) throw new Error(`Invalid Base58 character: ${char}`);
+            let carry = value;
+            for (let i = 0; i < bytes.length; i++) {
+                carry += bytes[i] * BASE;
+                bytes[i] = carry & 0xff;
+                carry >>= 8;
+            }
+            while (carry > 0) {
+                bytes.push(carry & 0xff);
+                carry >>= 8;
+            }
+        }
+        // 处理前导零
+        for (let c of str) {
+            if (c === '1') bytes.push(0);
+            else break;
+        }
+        return new Uint8Array(bytes.reverse());
+    }
+
+    // 归一化函数（异步，因为 Web Crypto 的 digest 是 Promise）
+    async function normalizeHash(input) {
+        try {
+            // 1. Base58 解码
+            const decoded = base58Decode(input);
+
+            // 2. 计算 SHA-256 哈希
+            const hashBuffer = await crypto.subtle.digest('SHA-256', decoded);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+
+            // 3. 转为大整数（BigInt）
+            let hashValue = 0n;
+            for (const byte of hashArray) {
+                hashValue = (hashValue << 8n) + BigInt(byte);
+            }
+
+            // 4. 最大值 2^256 - 1
+            const maxValue = (1n << 256n) - 1n;
+
+            // 5. 归一化为 [0, 1]
+            const normalized = Number(hashValue) / Number(maxValue);
+            return normalized;
+        } catch (e) {
+            console.error(e);
+            return 0;
+        }
+    }
+
+    //归一化函数
+    async function hashDataNormalized(data) {
+        data = Base58.toSignedArray(Base58.decode(data))
+        let a = hashData(data)
+        // let encoder = new TextEncoder();
+        // let dataBuffer = encoder.encode(data);
+        // let hashBuffer = await crypto.subtle.digest('SHA-256', dataBuffer);
+        // let hashArray = Array.from(new Uint8Array(hashBuffer));
+        //
+        // // 将哈希视作一个大整数并转为 [0,1) 的浮点数
+        // let value = 0n;
+        // for (const byte of hashArray) {
+        //     value = (value << 8n) + BigInt(byte);
+        // }
+        // let max = (1n << BigInt(hashArray.length * 8)) - 1n;
+        // let normalized = Number(value) / Number(max);
+        //
+        // return normalized; // 介于0~1之间的数
+    }
+
+    //转16进制
+
 
     // simple deterministic bust conversion: take first 13 hex chars -> int -> map to [1.00, 100.00]
     function hexToBust(hex) {
@@ -254,11 +355,32 @@
         const mult = 1 + ratio * 99; // from 1.00 to 100.00
         return Math.max(1, Math.floor(mult * 100) / 100).toFixed(2);
     }
+
     //随机数=guiyi(sha25(签名+区块hash))
     // function randomValue(hex){
     //     sha256Hex(hex)
     //    return
     // }
+
+    // function getQueryString(name) {
+    //     var reg = new RegExp('(^|&)' + name + '=([^&]*)(&|$)', 'i');
+    //     var r = window.location.search.substr(1).match(reg);
+    //     if (r != null) {
+    //         return unescape(r[2]);
+    //     }
+    //     return null;
+    // }
+    function getQueryString(name) {
+        // 转义正则特殊字符，防止注入攻击
+        var escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        var reg = new RegExp('[?&]' + escapedName + '=([^&]*)', 'i');
+        var match = window.location.search.match(reg);
+
+        if (match && match[1]) {
+            return match[1];//decodeURIComponent(match[1].replace(/\+/g, ' '));
+        }
+        return null;
+    }
 
     const gameHashEl = document.getElementById('gameHash');
     const saltEl = document.getElementById('salt');
@@ -268,11 +390,12 @@
     const tbody = document.querySelector('#resultTable tbody');
 
     async function showHash() {
+        console.log("hello world")
         verifyBtn.disabled = true;
         verifyBtn.textContent = 'Verifying...';
         tbody.innerHTML = '';
         // 1. 解析当前 URL 的查询参数
-        const params = new URLSearchParams(window.location.search);
+        // const params = new URLSearchParams(window.location.search);
         // 2. 把参数显示出来
         // let result = '';
         // for (const [key, value] of params.entries()) {
@@ -281,15 +404,19 @@
 
         // 3. 输出到页面
         // document.getElementById('output').innerHTML = result || '没有参数';
-        let count = parseInt(countEl.value, 5) || 5;
-        const aa = params.get("aa");
+        let count = parseInt(countEl.value) || 1;
+        // const aa = params.get("aa");
+        const aa = getQueryString("aa");
         // gameHashEl.value = aa
-        const bb = params.get("bb");
+        const bb = getQueryString("bb");
         // saltEl.value = bb
         var h = aa + bb
+        // var h = "5mYFEtZMDYGoFSfeSHqKw2GaTPDqEGKZwTBHi1Bfi1QEzP74wihTyZ7YG3ueFekNoT6KrRxzgfXagh5qR5BJC8A168TLzFJgGbn7DwWWRQyMqbxtfaeDvR5gGJhG6b2XdENK"
         for (let i = 0; i < count; i++) {
+            const bust = await normalizeHash(h);
+
+
             h = await hashData(h);
-            const bust = await hashDataNormalized(h);
             const tr = document.createElement('tr');
             const td1 = document.createElement('td');
             td1.textContent = h;
@@ -304,11 +431,11 @@
         verifyBtn.disabled = false;
         verifyBtn.textContent = 'Verify';
     }
+
     verifyBtn.addEventListener('click', async () => {
         const gh = gameHashEl.value.trim();
-        console.log("输入框： " + !gh)
         const salt = saltEl.value.trim();
-        let count = parseInt(countEl.value, 5) || 5;
+        let count = parseInt(countEl.value) || 1;
         if (!gh) {
             alert('请输入 Game\'s hash');
             return
@@ -320,7 +447,6 @@
         verifyBtn.disabled = true;
         verifyBtn.textContent = 'Verifying...';
         tbody.innerHTML = '';
-
         // for (let i = 0; i < count; i++) {
         //     const input = `${gh}:${salt}:${i}`;
         //     console.log("输入",input,gh,salt,i)
@@ -338,8 +464,8 @@
         // }
         var h = gh + salt
         for (let i = 0; i < count; i++) {
+            const bust = await normalizeHash(h);
             h = await hashData(h);
-            const bust = await hashDataNormalized(h);
             const tr = document.createElement('tr');
             const td1 = document.createElement('td');
             td1.textContent = h;
@@ -350,7 +476,6 @@
             tr.appendChild(td2);
             tbody.appendChild(tr);
         }
-
         verifyBtn.disabled = false;
         verifyBtn.textContent = 'Verify';
     });
