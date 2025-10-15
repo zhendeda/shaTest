@@ -199,8 +199,22 @@
         <tbody></tbody>
     </table>
 </div>
+<!--<script src="https://cdn.jsdelivr.net/npm/@solana/web3.js@1.86.0/lib/index.iife.js"></script>-->
+<!--<script src="web3.js"></script>-->
+<script type="module">
+    //import { PublicKey } from 'https://cdn.jsdelivr.net/npm/@solana/web3.js@1.86.0/lib/index.esm.js';
+    import bs58 from "https://cdn.jsdelivr.net/npm/bs58@5.0.0/+esm";
+    // const { bs58 } = window.solanaWeb3;
 
-<script>
+
+    // var ee=window.solanaWeb3;
+    // var ee2=Object.getPrototypeOf(window.solanaWeb3);
+    // var ss = window.solanaWeb3.__proto__["bs58$1"];
+    // var ss2 = window.solanaWeb3.__proto__["bs58"];
+    // var ss3 = window.solanaWeb3.getDefaultExportFromCjs;
+    // var ss4 = Object.getOwnPropertyNames(window.solanaWeb3);
+    // const decoded = bs58.decode("gggg");
+
     // helper: utf8 -> hex
     //TODO 加密算法去看签名（好像是base58）,和后端的归一化是否一致，这些TextEncoder的函数
     // 相关如 URLSearchParams 类浏览器是否支持（Chrome，Firefox（fookbook），Safari(苹果)）
@@ -218,18 +232,10 @@
 
     //SHA-25 哈希编码函数  这是一个异步函数
     async function hashData(data) {
-        // 将字符串编码为Uint8Array( 8 位无符号整型数组)
-        const encoder = new TextEncoder();
-        // 字母编码
-        const dataBuffer = encoder.encode(data);
-
         // 使用Web Crypto API计算哈希
-        const hashBuffer = await crypto.subtle.digest('SHA-256', dataBuffer);
-
-        // 将结果转换为十六进制字符串
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-        return hashHex;
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = new Uint8Array(hashBuffer);
+        return hashArray;
     }
 
     //base 解码
@@ -262,56 +268,51 @@
     //     return new Uint8Array(bytes);
     // }
 
-    //base58解码
-    // 纯原生 Base58 字母表
-    const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-    const BASE = 58;
-
-    // Base58 解码
-    function base58Decode(str) {
-        let bytes = [0];
-        for (let char of str) {
-            const value = ALPHABET.indexOf(char);
-            if (value < 0) throw new Error(`Invalid Base58 character: ${char}`);
-            let carry = value;
-            for (let i = 0; i < bytes.length; i++) {
-                carry += bytes[i] * BASE;
-                bytes[i] = carry & 0xff;
-                carry >>= 8;
-            }
-            while (carry > 0) {
-                bytes.push(carry & 0xff);
-                carry >>= 8;
-            }
-        }
-        // 处理前导零
-        for (let c of str) {
-            if (c === '1') bytes.push(0);
-            else break;
-        }
-        return new Uint8Array(bytes.reverse());
-    }
+    // //base58解码
+    // // 纯原生 Base58 字母表
+    // const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+    // const BASE = 58;
+    //
+    // // Base58 解码
+    // function base58Decode(str) {
+    //     let bytes = [0];
+    //     for (let char of str) {
+    //         const value = ALPHABET.indexOf(char);
+    //         if (value < 0) throw new Error(`Invalid Base58 character: ${char}`);
+    //         let carry = value;
+    //         for (let i = 0; i < bytes.length; i++) {
+    //             carry += bytes[i] * BASE;
+    //             bytes[i] = carry & 0xff;
+    //             carry >>= 8;
+    //         }
+    //         while (carry > 0) {
+    //             bytes.push(carry & 0xff);
+    //             carry >>= 8;
+    //         }
+    //     }
+    //     // 处理前导零
+    //     for (let c of str) {
+    //         if (c === '1') bytes.push(0);
+    //         else break;
+    //     }
+    //     return new Uint8Array(bytes.reverse());
+    // }
 
     // 归一化函数（异步，因为 Web Crypto 的 digest 是 Promise）
-    async function normalizeHash(input) {
+    async function normalizeHash(decoded) {
         try {
-            // 1. Base58 解码
-            const decoded = base58Decode(input);
+            const hashArray = Array.from(decoded);
 
-            // 2. 计算 SHA-256 哈希
-            const hashBuffer = await crypto.subtle.digest('SHA-256', decoded);
-            const hashArray = Array.from(new Uint8Array(hashBuffer));
-
-            // 3. 转为大整数（BigInt）
+            // 2. 转为大整数（BigInt）
             let hashValue = 0n;
             for (const byte of hashArray) {
                 hashValue = (hashValue << 8n) + BigInt(byte);
             }
 
-            // 4. 最大值 2^256 - 1
+            // 3. 最大值 2^256 - 1
             const maxValue = (1n << 256n) - 1n;
 
-            // 5. 归一化为 [0, 1]
+            // 4. 归一化为 [0, 1]
             const normalized = Number(hashValue) / Number(maxValue);
             return normalized;
         } catch (e) {
@@ -385,18 +386,35 @@
     const clearBtn = document.getElementById('clearBtn');
     const tbody = document.querySelector('#resultTable tbody');
 
-    async function createElementItem(h){
+    async function createElementItem(st,bh){
         console.log("hello world")
         verifyBtn.disabled = true;
         verifyBtn.textContent = 'Verifying...';
         tbody.innerHTML = '';
         let count = parseInt(countEl.value) || 1;
+        // // 1. 自己实现的Base58 解码
+        // const decoded1 = base58Decode(st);
+        // const decoded2 = base58Decode(bh);
+        //1. bs58 解码
+        const decoded1 = bs58.decode(st);
+        const decoded2 = bs58.decode(bh);
+        // // 1. solanaPublickey 解码
+        // const decoded2 = new PublicKey(bh).toBuffer;
+        // const decoded1 = new PublicKey(st).toBuffer;
+        // === 合并两个字节数组 ===
+        var combined = new Uint8Array(decoded1.length + decoded2.length);
+        combined.set(decoded1, 0);
+        combined.set(decoded2, decoded1.length);
+        var base58Value = "";
         for (let i = 0; i < count; i++) {
-            const bust = await normalizeHash(h);
-            h = await hashData(h);
+            combined = await hashData(combined);
+            base58Value = bs58.encode(combined)
+            const bust = await normalizeHash(combined);
+            //加密之后再成为下一个结果
+
             const tr = document.createElement('tr');
             const td1 = document.createElement('td');
-            td1.textContent = h;
+            td1.textContent = base58Value;
             const td2 = document.createElement('td');
             td2.textContent = `${bust}x`;
             td2.className = 'mult';
@@ -418,12 +436,14 @@
         // 3. 输出到页面
         // document.getElementById('output').innerHTML = result || '没有参数';
         // const aa = params.get("aa");
-        const aa = getQueryString("aa");
+        const salt = getQueryString("salt");
         // gameHashEl.value = aa
-        const bb = getQueryString("bb");
+        const gh = getQueryString("gh");
+        if(!salt&&!gh){
+            return;
+        }
         // saltEl.value = bb
-        let h = aa + bb
-        await createElementItem(h)
+        await createElementItem(gh,salt)
     }
 
     verifyBtn.addEventListener('click', async () => {
@@ -437,8 +457,8 @@
             alert('请输入 Salt');
             return
         }
-        let h = gh + salt;
-        await createElementItem(h)
+        //let h = gh + salt;
+        await createElementItem(gh,salt)
         // for (let i = 0; i < count; i++) {
         //     const input = `${gh}:${salt}:${i}`;
         //     console.log("输入",input,gh,salt,i)
