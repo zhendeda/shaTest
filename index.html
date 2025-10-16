@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width,initial-scale=1"/>
-    <title>Crash 验证器（克隆）</title>
+    <title>Solana 验证器（super）</title>
     <style>
         :root {
             --bg: #0b1220;
@@ -156,22 +156,22 @@
 </head>
 <body>
 <div class="wrap">
-    <h1>Crash 验证器（克隆）</h1>
-    <p class="lead">输入游戏的 hash / salt 并验证历史结果 —— 这是一个前端克隆，仅复现界面和本地计算示例。</p>
+    <h1>Solana 验证器（super）</h1>
+    <p class="lead">输入游戏的 签名 / 区块hash 并验证历史结果 —— </p>
 
     <div class="form" role="form">
         <div class="field">
-            <label for="gameHash">签名</label>
-            <input id="gameHash" type="text" value="" placeholder="示例: 3f7a..."/>
+            <label for="signatureField">签名</label>
+            <input id="signatureField" type="text" value="" placeholder="示例: 3f7a..."/>
         </div>
 
         <div class="field">
-            <label for="salt">区块哈希</label>
-            <input id="salt" type="text" value="" placeholder="示例: server-salt 或 salt123"/>
+            <label for="blockHashField">区块哈希</label>
+            <input id="blockHashField" type="text" value="" placeholder="示例: BlockHash 或 Hash123"/>
         </div>
 
         <div class="field">
-            <label for="count">Amount of games</label>
+            <label for="count">生成数量</label>
             <input id="count" type="number" value="1" min="1" max="100"/>
         </div>
     </div>
@@ -181,19 +181,19 @@
         <button id="clearBtn" class="btn secondary">Clear results</button>
         <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
             <span class="small muted">结果格式：</span>
-            <span class="small">签名 → Bust</span>
+            <span class="small">base58解码签名和区块hash后合并。下个数为最新数的base58编码 → 左边值使用sha-256hash归一化的值即概率</span>
         </div>
     </div>
 
     <div class="hint">
-        注意：本页面只是界面与本地演示，计算规则与原站点可能不同。若需完全一致的验证算法，请提供原站点的算法或允许我抓取并复现。
+        注意：。
     </div>
 
     <table id="resultTable" aria-live="polite">
         <thead>
         <tr>
-            <th>签名</th>
-            <th>Bust</th>
+            <th>Base58</th>
+            <th>概率</th>
         </tr>
         </thead>
         <tbody></tbody>
@@ -368,6 +368,8 @@
     //     }
     //     return null;
     // }
+
+    //分割网页传出的参数
     function getQueryString(name) {
         // 转义正则特殊字符，防止注入攻击
         var escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -379,15 +381,14 @@
         return null;
     }
 
-    const gameHashEl = document.getElementById('gameHash');
-    const saltEl = document.getElementById('salt');
+    const signatureEl = document.getElementById('signatureField');
+    const blockHashEl = document.getElementById('blockHashField');
     const countEl = document.getElementById('count');
     const verifyBtn = document.getElementById('verifyBtn');
     const clearBtn = document.getElementById('clearBtn');
     const tbody = document.querySelector('#resultTable tbody');
 
-    async function createElementItem(st,bh){
-        console.log("hello world")
+    async function createElementItem(signature, blockHash) {
         verifyBtn.disabled = true;
         verifyBtn.textContent = 'Verifying...';
         tbody.innerHTML = '';
@@ -396,16 +397,16 @@
         // const decoded1 = base58Decode(st);
         // const decoded2 = base58Decode(bh);
         //1. bs58 解码
-        const decoded1 = bs58.decode(st);
-        const decoded2 = bs58.decode(bh);
+        const decoded1 = bs58.decode(signature);
+        const decoded2 = bs58.decode(blockHash);
         // // 1. solanaPublickey 解码
         // const decoded2 = new PublicKey(bh).toBuffer;
         // const decoded1 = new PublicKey(st).toBuffer;
         // === 合并两个字节数组 ===
-        var combined = new Uint8Array(decoded1.length + decoded2.length);
+        let combined = new Uint8Array(decoded1.length + decoded2.length);
         combined.set(decoded1, 0);
         combined.set(decoded2, decoded1.length);
-        var base58Value = "";
+        let base58Value = "";
         for (let i = 0; i < count; i++) {
             combined = await hashData(combined);
             base58Value = bs58.encode(combined)
@@ -425,7 +426,9 @@
         verifyBtn.disabled = false;
         verifyBtn.textContent = 'Verify';
     }
+
     async function showHash() {
+        console.log("hello world")
         // 1. 解析当前 URL 的查询参数
         // const params = new URLSearchParams(window.location.search);
         // 2. 把参数显示出来
@@ -436,29 +439,25 @@
         // 3. 输出到页面
         // document.getElementById('output').innerHTML = result || '没有参数';
         // const aa = params.get("aa");
-        const salt = getQueryString("salt");
-        // gameHashEl.value = aa
-        const gh = getQueryString("gh");
-        if(!salt&&!gh){
-            return;
-        }
-        // saltEl.value = bb
-        await createElementItem(gh,salt)
+        // signatureEl.value = aa
+        signatureEl.value = getQueryString("signature");
+        blockHashEl.value = getQueryString("blockHash");
+        verifyBtn.click()
     }
 
     verifyBtn.addEventListener('click', async () => {
-        const gh = gameHashEl.value.trim();
-        const salt = saltEl.value.trim();
-        if (!gh) {
-            alert('请输入 Game\'s hash');
+        const signatureQuery = signatureEl.value.trim();
+        const blockHashQuery = blockHashEl.value.trim();
+        if (!signatureQuery) {
+            alert('请输入 签名');
             return
         }
-        if (!salt) {
-            alert('请输入 Salt');
+        if (!blockHashQuery) {
+            alert('请输入 区块hash');
             return
         }
         //let h = gh + salt;
-        await createElementItem(gh,salt)
+        await createElementItem(signatureQuery, blockHashQuery)
         // for (let i = 0; i < count; i++) {
         //     const input = `${gh}:${salt}:${i}`;
         //     console.log("输入",input,gh,salt,i)
@@ -480,7 +479,7 @@
         tbody.innerHTML = ''
     });
     // convenience: press Enter in any field triggers verify
-    [gameHashEl, saltEl, countEl].forEach(el => el.addEventListener('keydown', e => {
+    [signatureEl, blockHashEl, countEl].forEach(el => el.addEventListener('keydown', e => {
         if (e.key === 'Enter') verifyBtn.click()
     }));
     showHash();
